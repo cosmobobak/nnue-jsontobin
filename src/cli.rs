@@ -4,6 +4,7 @@ use clap::Parser;
 #[clap(author, version, about)]
 #[allow(clippy::struct_excessive_bools, clippy::option_option)]
 pub struct Cli {
+    input: Option<std::path::PathBuf>,
     /// Output path for a unified converted model (use this if you want a single NNUE binary!)
     #[clap(short, long, value_name = "PATH")]
     pub unified: Option<std::path::PathBuf>,

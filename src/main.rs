@@ -10,6 +10,11 @@ mod convert;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = <cli::Cli as clap::Parser>::parse();
+
+    if args.unified.is_none() && args.split.is_none() {
+        return Err("No output path specified, try --unified <PATH> or --split <PATH> (you probably want --unified)".into());
+    }
+
     let json = std::io::stdin().lock().lines().next().ok_or("No input")??;
     let (ft_weights, ft_bias, out_weights, out_bias) =
         convert::from_json(&json, args.qa, args.qb, &args.ft_name, &args.out_name)?;
