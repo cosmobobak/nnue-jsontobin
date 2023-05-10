@@ -39,39 +39,54 @@ pub fn from_json(
     let out_weight_key = format!("{out_name}.weight");
     let out_bias_key = format!("{out_name}.bias");
 
+    if object.len() > 4 {
+        return Err(format!(
+            "Too many fields in JSON, expected 4 but got {}",
+            object.len()
+        )
+        .into());
+    }
+    if object.len() < 4 {
+        return Err(format!(
+            "Too few fields in JSON, expected 4 but got {}",
+            object.len()
+        )
+        .into());
+    }
+
     // extract fields from the json object
     let ft_weights = object.get(&ft_weight_key).ok_or_else(|| {
         format!(
-            "{} not found, keys of object are: {:?}",
+            "{} not found, keys of object are: {:?}.\nmaybe try passing --ft-name {}?",
             ft_weight_key,
-            object.keys().collect::<Vec<_>>()
+            object.keys().collect::<Vec<_>>(),
+            object.keys().next().unwrap().split_once('.').unwrap().0
         )
     })?;
     let ft_bias = object.get(&ft_bias_key).ok_or_else(|| {
         format!(
-            "{} not found, keys of object are: {:?}",
+            "{} not found, keys of object are: {:?}.\nmaybe try passing --ft-name {}?",
             ft_bias_key,
-            object.keys().collect::<Vec<_>>()
+            object.keys().collect::<Vec<_>>(),
+            object.keys().next().unwrap().split_once('.').unwrap().0
         )
     })?;
     let out_weights = object.get(&out_weight_key).ok_or_else(|| {
         format!(
-            "{} not found, keys of object are: {:?}",
+            "{} not found, keys of object are: {:?}.\nmaybe try passing --out-name {}?",
             out_weight_key,
-            object.keys().collect::<Vec<_>>()
+            object.keys().collect::<Vec<_>>(),
+            object.keys().nth(3).unwrap().split_once('.').unwrap().0
         )
     })?;
     let out_bias = object.get(&out_bias_key).ok_or_else(|| {
         format!(
-            "{} not found, keys of object are: {:?}",
+            "{} not found, keys of object are: {:?}.\nmaybe try passing --out-name {}?",
             out_bias_key,
-            object.keys().collect::<Vec<_>>()
+            object.keys().collect::<Vec<_>>(),
+            object.keys().nth(3).unwrap().split_once('.').unwrap().0
         )
     })?;
-
-    if object.len() != 4 {
-        return Err("Too many fields in JSON".into());
-    }
 
     // check that the fields are arrays
     let ft_weights = ft_weights

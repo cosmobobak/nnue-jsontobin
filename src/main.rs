@@ -5,7 +5,14 @@ use std::{error::Error, io::Write};
 mod cli;
 mod convert;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("[ERROR] {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let args = <cli::Cli as clap::Parser>::parse();
 
     let Some(input_path) = args.input else {
