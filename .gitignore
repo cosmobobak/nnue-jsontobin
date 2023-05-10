@@ -1,0 +1,4 @@
+/target
+validation
+*.exe
+*.pdb
