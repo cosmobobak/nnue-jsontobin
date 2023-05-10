@@ -71,10 +71,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         });
         for (file_name, slice) in [
-            "feature_weights",
-            "feature_bias",
-            "output_weights",
-            "output_bias",
+            "feature_weights.bin",
+            "feature_bias.bin",
+            "output_weights.bin",
+            "output_bias.bin",
         ]
         .into_iter()
         .zip(byte_slices)
