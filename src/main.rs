@@ -11,7 +11,8 @@ mod convert;
 fn main() -> Result<(), Box<dyn Error>> {
     let args = <cli::Cli as clap::Parser>::parse();
     let json = std::io::stdin().lock().lines().next().ok_or("No input")??;
-    let (ft_weights, ft_bias, out_weights, out_bias) = convert::from_json(&json, args.qa, args.qb, &args.ft_name, &args.out_name)?;
+    let (ft_weights, ft_bias, out_weights, out_bias) =
+        convert::from_json(&json, args.qa, args.qb, &args.ft_name, &args.out_name)?;
 
     if let Some(path) = args.unified {
         let mut file = std::fs::File::create(&path)?;

@@ -40,14 +40,34 @@ pub fn from_json(
     let out_bias_key = format!("{out_name}.bias");
 
     // extract fields from the json object
-    let ft_weights = object
-        .get(&ft_weight_key)
-        .ok_or_else(|| format!("{} not found, keys of object are: {:?}", ft_weight_key, object.keys().collect::<Vec<_>>()))?;
-    let ft_bias = object
-        .get(&ft_bias_key)
-        .ok_or_else(|| format!("{} not found, keys of object are: {:?}", ft_bias_key, object.keys().collect::<Vec<_>>()))?;
-    let out_weights = object.get(&out_weight_key).ok_or_else(|| format!("{} not found, keys of object are: {:?}", out_weight_key, object.keys().collect::<Vec<_>>()))?;
-    let out_bias = object.get(&out_bias_key).ok_or_else(|| format!("{} not found, keys of object are: {:?}", out_bias_key, object.keys().collect::<Vec<_>>()))?;
+    let ft_weights = object.get(&ft_weight_key).ok_or_else(|| {
+        format!(
+            "{} not found, keys of object are: {:?}",
+            ft_weight_key,
+            object.keys().collect::<Vec<_>>()
+        )
+    })?;
+    let ft_bias = object.get(&ft_bias_key).ok_or_else(|| {
+        format!(
+            "{} not found, keys of object are: {:?}",
+            ft_bias_key,
+            object.keys().collect::<Vec<_>>()
+        )
+    })?;
+    let out_weights = object.get(&out_weight_key).ok_or_else(|| {
+        format!(
+            "{} not found, keys of object are: {:?}",
+            out_weight_key,
+            object.keys().collect::<Vec<_>>()
+        )
+    })?;
+    let out_bias = object.get(&out_bias_key).ok_or_else(|| {
+        format!(
+            "{} not found, keys of object are: {:?}",
+            out_bias_key,
+            object.keys().collect::<Vec<_>>()
+        )
+    })?;
 
     if object.len() != 4 {
         return Err("Too many fields in JSON".into());
