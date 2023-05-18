@@ -1,5 +1,5 @@
 [package]
-name = "viri-jsontobin"
+name = "nnue-jsontobin"
 version = "1.0.0"
 edition = "2021"
 description = "Converts marlinflow JSON networks into binary format, for use in chess engines."
