@@ -88,12 +88,18 @@ pub fn from_json(
     println!("Hope you're using a {neurons}x2 net, because that's what this looks like to me!");
 
     let buckets = if let Some(factoriser) = &network_weights.factoriser_weight {
-        // buckets is the number of times that the factoriser can fit into the perspective
-        network_weights.perspective_weight.len() / factoriser.len()
+        // buckets is the number of times that a factoriser neuron can fit into a perspective neuron
+        network_weights.perspective_weight[0].len() / factoriser[0].len()
     } else {
         // if there's no factoriser, there's essentially one bucket.
         1
     };
+
+    if buckets == 1 {
+        println!("This net doesn't have any buckets. (or it has one bucket, in which case wtf are you doing?)");
+    } else {
+        println!("There are {buckets} buckets in this net (we think).");
+    }
 
     // allocate buffers for the weights and biases
     let mut feature_weights_buf = vec![0i16; neurons * INPUT_SIZE * buckets];
