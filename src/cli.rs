@@ -17,10 +17,4 @@ pub struct Cli {
     /// The second quantisation parameter.
     #[clap(long, value_name = "K", default_value = "64")]
     pub qb: i32,
-    /// The name of the feature transformer layer.
-    #[clap(long, value_name = "NAME", default_value = "perspective")]
-    pub ft_name: String,
-    /// The name of the output layer.
-    #[clap(long, value_name = "NAME", default_value = "out")]
-    pub out_name: String,
 }

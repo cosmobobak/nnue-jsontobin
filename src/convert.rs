@@ -1,149 +1,158 @@
-use serde_json::Value;
+
+use serde::Deserialize;
 
 const INPUT_SIZE: usize = 768;
 
-fn weight(weight_relation: &[Value], weight_array: &mut [i16], stride: usize, k: i32, flip: bool) {
+// example of the json format:
+// {
+//     "perspective.weight": [ ... ],
+//     "perspective.bias": [ ... ],
+//     "factoriser.weight": [ ... ],
+//     "factoriser.bias": [ ... ],
+//     "out.weight": [ ... ],
+//     "out.bias": [ ... ]
+// }
+// the "factoriser" fields are optional, and will be ignored if they are not present.
+// we also accept aliases for the field names, e.g. "ft.weight" instead of "perspective.weight",
+// and "fft.weight" instead of "factoriser.weight".
+
+#[derive(Deserialize)]
+struct FullNetworkWeights {
+    #[serde(rename = "perspective.weight")]
+    #[serde(alias = "ft.weight")]
+    perspective_weight: Vec<Vec<f64>>,
+    #[serde(rename = "perspective.bias")]
+    #[serde(alias = "ft.bias")]
+    perspective_bias: Vec<f64>,
+    #[serde(rename = "factoriser.weight")]
+    #[serde(alias = "fft.weight")]
+    factoriser_weight: Option<Vec<Vec<f64>>>,
+    #[serde(rename = "factoriser.bias")]
+    #[serde(alias = "fft.bias")]
+    factoriser_bias: Option<Vec<f64>>,
+    #[serde(rename = "out.weight")]
+    out_weight: Vec<Vec<f64>>,
+    #[serde(rename = "out.bias")]
+    out_bias: Vec<f64>,
+}
+
+pub struct QuantisedMergedNetwork {
+    pub feature_weights: Vec<i16>,
+    pub feature_bias: Vec<i16>,
+    pub output_weights: Vec<i16>,
+    pub output_bias: Vec<i16>,
+}
+
+fn extract_weights(weights: &[Vec<f64>], weight_array: &mut [i16], stride: usize, k: i32, flip: bool) {
     #![allow(clippy::cast_possible_truncation)]
-    for (i, output) in weight_relation.iter().enumerate() {
-        for (j, weight) in output.as_array().unwrap().iter().enumerate() {
+    for (i, output) in weights.iter().enumerate() {
+        for (j, weight) in output.iter().enumerate() {
             let index = if flip { j * stride + i } else { i * stride + j };
-            let value = weight.as_f64().unwrap();
-            weight_array[index] = (value * f64::from(k)) as i16;
+            weight_array[index] = (weight * f64::from(k)) as i16;
         }
     }
 }
 
-fn bias(bias_relation: &[Value], bias_array: &mut [i16], k: i32) {
+fn extract_biases(biases: &[f64], bias_array: &mut [i16], k: i32) {
     #![allow(clippy::cast_possible_truncation)]
-    for (i, bias) in bias_relation.iter().enumerate() {
-        let value = bias.as_f64().unwrap();
-        bias_array[i] = (value * f64::from(k)) as i16;
+    for (i, bias) in biases.iter().enumerate() {
+        bias_array[i] = (bias * f64::from(k)) as i16;
     }
 }
-
-type FourVecs = (Vec<i16>, Vec<i16>, Vec<i16>, Vec<i16>);
 
 pub fn from_json(
     json: &str,
     qa: i32,
     qb: i32,
-    ft_name: &str,
-    out_name: &str,
-) -> Result<FourVecs, Box<dyn std::error::Error>> {
-    let json: Value = serde_json::from_str(json)?;
-    let object = json.as_object().ok_or("Input JSON is not an object")?;
-
-    // make keys for the json object
-    let ft_weight_key = format!("{ft_name}.weight");
-    let ft_bias_key = format!("{ft_name}.bias");
-    let out_weight_key = format!("{out_name}.weight");
-    let out_bias_key = format!("{out_name}.bias");
-
-    if object.len() > 4 {
-        return Err(format!(
-            "Too many fields in JSON, expected 4 but got {}",
-            object.len()
-        )
-        .into());
-    }
-    if object.len() < 4 {
-        return Err(format!(
-            "Too few fields in JSON, expected 4 but got {}",
-            object.len()
-        )
-        .into());
-    }
-
-    // extract fields from the json object
-    let ft_weights = object.get(&ft_weight_key).ok_or_else(|| {
-        format!(
-            "{} not found, keys of object are: {:?}.\nmaybe try passing --ft-name {}?",
-            ft_weight_key,
-            object.keys().collect::<Vec<_>>(),
-            object.keys().next().unwrap().split_once('.').unwrap().0
-        )
-    })?;
-    let ft_bias = object.get(&ft_bias_key).ok_or_else(|| {
-        format!(
-            "{} not found, keys of object are: {:?}.\nmaybe try passing --ft-name {}?",
-            ft_bias_key,
-            object.keys().collect::<Vec<_>>(),
-            object.keys().next().unwrap().split_once('.').unwrap().0
-        )
-    })?;
-    let out_weights = object.get(&out_weight_key).ok_or_else(|| {
-        format!(
-            "{} not found, keys of object are: {:?}.\nmaybe try passing --out-name {}?",
-            out_weight_key,
-            object.keys().collect::<Vec<_>>(),
-            object.keys().nth(3).unwrap().split_once('.').unwrap().0
-        )
-    })?;
-    let out_bias = object.get(&out_bias_key).ok_or_else(|| {
-        format!(
-            "{} not found, keys of object are: {:?}.\nmaybe try passing --out-name {}?",
-            out_bias_key,
-            object.keys().collect::<Vec<_>>(),
-            object.keys().nth(3).unwrap().split_once('.').unwrap().0
-        )
-    })?;
-
-    // check that the fields are arrays
-    let ft_weights = ft_weights
-        .as_array()
-        .ok_or("perspective.weight is not an array")?;
-    let ft_bias = ft_bias
-        .as_array()
-        .ok_or("perspective.bias is not an array")?;
-    let out_weights = out_weights.as_array().ok_or("out.weight is not an array")?;
-    let out_bias = out_bias.as_array().ok_or("out.bias is not an array")?;
+) -> Result<QuantisedMergedNetwork, Box<dyn std::error::Error>> {
+    let network_weights: FullNetworkWeights = serde_json::from_str(json)?;
 
     // check that the arrays are the right size
-    let ft_neurons = ft_weights.len();
-    println!("ft_size: {ft_neurons}");
-    let out_size = out_weights[0]
-        .as_array()
-        .ok_or("out.weight[0] is not an array")?
-        .len();
+    let neurons = if let Some(factoriser_weight) = &network_weights.factoriser_weight {
+        // if we have a factoriser, it gives us the correct number of neurons
+        factoriser_weight.len()
+    } else {
+        // otherwise, there aren't any buckets, so we can safely use the perspective weight
+        network_weights.perspective_weight.len()
+    };
+    println!("ft_size: {}", network_weights.perspective_weight.len());
+    println!("neurons: {neurons}");
+    let out_size = network_weights.out_weight[0].len();
     println!("out_size: {out_size}");
-    if 2 * ft_neurons != out_size {
+    if 2 * neurons != out_size {
         return Err(format!(
-            "perspective.weight has {ft_neurons} neurons, but out.weight has {out_size} inputs (should be twice as many)"
+            "there are {neurons} neurons, but out.weight has {out_size} inputs (should be twice as many)"
         ).into());
     }
 
-    println!("Hope you're using a {ft_neurons}x2 net, because that's what this looks like to me!");
+    println!("Hope you're using a {neurons}x2 net, because that's what this looks like to me!");
+
+    let buckets = if let Some(factoriser) = &network_weights.factoriser_weight {
+        // buckets is the number of times that the factoriser can fit into the perspective
+        network_weights.perspective_weight.len() / factoriser.len()
+    } else {
+        // if there's no factoriser, there's essentially one bucket.
+        1
+    };
 
     // allocate buffers for the weights and biases
-    let mut feature_weights_buf = vec![0i16; ft_neurons * INPUT_SIZE];
-    let mut feature_bias_buf = vec![0i16; ft_neurons];
+    let mut feature_weights_buf = vec![0i16; neurons * INPUT_SIZE * buckets];
+    let mut feature_bias_buf = vec![0i16; neurons * buckets];
+    let mut factoriser_weights_buf = vec![0i16; neurons * INPUT_SIZE];
+    let mut factoriser_bias_buf = vec![0i16; neurons];
     let mut output_weights_buf = vec![0i16; out_size];
     let mut output_bias_buf = vec![0i16; 1];
 
     // read the weights and biases into the buffers
-    weight(ft_weights, &mut feature_weights_buf, ft_neurons, qa, true);
-    bias(ft_bias, &mut feature_bias_buf, qa);
-    weight(out_weights, &mut output_weights_buf, out_size, qb, false);
-    bias(out_bias, &mut output_bias_buf, qa * qb);
+    extract_weights(&network_weights.perspective_weight, &mut feature_weights_buf, neurons, qa, true);
+    extract_biases(&network_weights.perspective_bias, &mut feature_bias_buf, qa);
+    extract_weights(&network_weights.out_weight, &mut output_weights_buf, out_size, qb, false);
+    extract_biases(&network_weights.out_bias, &mut output_bias_buf, qa * qb);
 
-    Ok((
-        feature_weights_buf,
-        feature_bias_buf,
-        output_weights_buf,
-        output_bias_buf,
-    ))
+    if let Some(factoriser_weight) = &network_weights.factoriser_weight {
+        // if we got a factoriser, read it into the buffer
+        extract_weights(factoriser_weight, &mut factoriser_weights_buf, neurons, qa, true);
+        // then add it to each bucket:
+        let chunk_size = network_weights.perspective_weight.len() / buckets;
+        for subnet in feature_weights_buf.chunks_mut(chunk_size) {
+            for (src, tgt) in factoriser_weights_buf.iter().zip(subnet.iter_mut()) {
+                *tgt += *src;
+            }
+        }
+    }
+
+    if let Some(factoriser_bias) = &network_weights.factoriser_bias {
+        // if we got a factoriser, read it into the buffer
+        extract_biases(factoriser_bias, &mut factoriser_bias_buf, qa);
+        // then add it to each bucket:
+        let chunk_size = network_weights.perspective_bias.len() / buckets;
+        for subnet in feature_bias_buf.chunks_mut(chunk_size) {
+            for (src, tgt) in factoriser_bias_buf.iter().zip(subnet.iter_mut()) {
+                *tgt += *src;
+            }
+        }
+    }
+
+    // return the buffers
+    Ok(QuantisedMergedNetwork {
+        feature_weights: feature_weights_buf,
+        feature_bias: feature_bias_buf,
+        output_weights: output_weights_buf,
+        output_bias: output_bias_buf,
+    })
 }
 
 mod tests {
     #[test]
     fn test_from_json_0030() {
+        use crate::convert::QuantisedMergedNetwork;
         let json = std::fs::read_to_string("validation/net0030/viri0030.json").unwrap();
-        let (ft_weights, ft_bias, out_weights, out_bias) =
-            crate::convert::from_json(&json, 255, 64, "ft", "out").unwrap();
-        assert_eq!(ft_weights.len(), 768 * 256);
-        assert_eq!(ft_bias.len(), 256);
-        assert_eq!(out_weights.len(), 512);
-        assert_eq!(out_bias.len(), 1);
+        let QuantisedMergedNetwork { feature_weights, feature_bias, output_weights, output_bias } =
+            crate::convert::from_json(&json, 255, 64).unwrap();
+        assert_eq!(feature_weights.len(), 768 * 256);
+        assert_eq!(feature_bias.len(), 256);
+        assert_eq!(output_weights.len(), 512);
+        assert_eq!(output_bias.len(), 1);
         let validation_ft_weight = std::fs::read("validation/net0030/feature_weights.bin").unwrap();
         let validation_ft_bias = std::fs::read("validation/net0030/feature_bias.bin").unwrap();
         let validation_o_weight = std::fs::read("validation/net0030/output_weights.bin").unwrap();
@@ -164,10 +173,10 @@ mod tests {
         );
 
         let our_concat = [
-            &ft_weights[..],
-            &ft_bias[..],
-            &out_weights[..],
-            &out_bias[..],
+            &feature_weights[..],
+            &feature_bias[..],
+            &output_weights[..],
+            &output_bias[..],
         ]
         .concat();
         let our_concat = unsafe {
@@ -183,9 +192,10 @@ mod tests {
 
     #[test]
     fn test_from_json_0056() {
+        use crate::convert::QuantisedMergedNetwork;
         let json = std::fs::read_to_string("validation/net0056/viri0056.json").unwrap();
-        let (ft_weights, ft_bias, out_weights, out_bias) =
-            crate::convert::from_json(&json, 255, 64, "perspective", "out").unwrap();
+        let QuantisedMergedNetwork { feature_weights: ft_weights, feature_bias: ft_bias, output_weights: out_weights, output_bias: out_bias } =
+            crate::convert::from_json(&json, 255, 64).unwrap();
         assert_eq!(ft_weights.len(), 768 * 512);
         assert_eq!(ft_bias.len(), 512);
         assert_eq!(out_weights.len(), 1024);
