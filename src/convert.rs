@@ -31,9 +31,16 @@ struct FullNetworkWeights {
     #[serde(alias = "fft.bias")]
     factoriser_bias: Option<Vec<f64>>,
     #[serde(rename = "out.weight")]
-    out_weight: Vec<Vec<f64>>,
+    output_weight: Vec<Vec<f64>>,
     #[serde(rename = "out.bias")]
-    out_bias: Vec<f64>,
+    output_bias: Vec<f64>,
+}
+
+struct MergedNetworkWeights {
+    pub perspective_weight: Vec<Vec<f64>>,
+    pub perspective_bias: Vec<f64>,
+    pub output_weight: Vec<Vec<f64>>,
+    pub output_bias: Vec<f64>,
 }
 
 pub struct QuantisedMergedNetwork {
@@ -77,7 +84,7 @@ pub fn from_json(
     };
     println!("ft_size: {}", network_weights.perspective_weight.len());
     println!("neurons: {neurons}");
-    let out_size = network_weights.out_weight[0].len();
+    let out_size = network_weights.output_weight[0].len();
     println!("out_size: {out_size}");
     if 2 * neurons != out_size {
         return Err(format!(
@@ -101,43 +108,51 @@ pub fn from_json(
         println!("There are {buckets} buckets in this net (we think).");
     }
 
+    // merge the factoriser and perspective weights:
+    let merged_net = if let (Some(fft_weight), Some(fft_bias)) = (network_weights.factoriser_weight, network_weights.factoriser_bias) {
+        let mut perspective_weight = network_weights.perspective_weight;
+        let mut perspective_bias = network_weights.perspective_bias;
+        assert_eq!(perspective_weight.len(), fft_weight.len());
+        assert_eq!(perspective_bias.len(), fft_bias.len());
+        assert_eq!(perspective_weight[0].len() / buckets, fft_weight[0].len());
+        // merge biases
+        for (bias_src, bias_dst) in fft_bias.iter().zip(perspective_bias.iter_mut()) {
+            *bias_dst += bias_src;
+        }
+        // merge weights
+        for (weight_src, weight_dst) in fft_weight.iter().zip(perspective_weight.iter_mut()) {
+            assert_eq!(weight_src.len(), weight_dst.len() / buckets);
+            for i in 0..weight_dst.len() {
+                // using modular arithmetic here because the factoriser weights are repeated.
+                weight_dst[i] += weight_src[i % weight_src.len()];
+            }
+        }
+        MergedNetworkWeights {
+            perspective_weight,
+            perspective_bias,
+            output_weight: network_weights.output_weight,
+            output_bias: network_weights.output_bias,
+        }
+    } else {
+        MergedNetworkWeights {
+            perspective_weight: network_weights.perspective_weight,
+            perspective_bias: network_weights.perspective_bias,
+            output_weight: network_weights.output_weight,
+            output_bias: network_weights.output_bias,
+        }
+    };
+
     // allocate buffers for the weights and biases
     let mut feature_weights_buf = vec![0i16; neurons * INPUT_SIZE * buckets];
     let mut feature_bias_buf = vec![0i16; neurons * buckets];
-    let mut factoriser_weights_buf = vec![0i16; neurons * INPUT_SIZE];
-    let mut factoriser_bias_buf = vec![0i16; neurons];
     let mut output_weights_buf = vec![0i16; out_size];
     let mut output_bias_buf = vec![0i16; 1];
 
     // read the weights and biases into the buffers
-    extract_weights(&network_weights.perspective_weight, &mut feature_weights_buf, neurons, qa, true);
-    extract_biases(&network_weights.perspective_bias, &mut feature_bias_buf, qa);
-    extract_weights(&network_weights.out_weight, &mut output_weights_buf, out_size, qb, false);
-    extract_biases(&network_weights.out_bias, &mut output_bias_buf, qa * qb);
-
-    if let Some(factoriser_weight) = &network_weights.factoriser_weight {
-        // if we got a factoriser, read it into the buffer
-        extract_weights(factoriser_weight, &mut factoriser_weights_buf, neurons, qa, true);
-        // then add it to each bucket:
-        let chunk_size = network_weights.perspective_weight.len() / buckets;
-        for subnet in feature_weights_buf.chunks_mut(chunk_size) {
-            for (src, tgt) in factoriser_weights_buf.iter().zip(subnet.iter_mut()) {
-                *tgt += *src;
-            }
-        }
-    }
-
-    if let Some(factoriser_bias) = &network_weights.factoriser_bias {
-        // if we got a factoriser, read it into the buffer
-        extract_biases(factoriser_bias, &mut factoriser_bias_buf, qa);
-        // then add it to each bucket:
-        let chunk_size = network_weights.perspective_bias.len() / buckets;
-        for subnet in feature_bias_buf.chunks_mut(chunk_size) {
-            for (src, tgt) in factoriser_bias_buf.iter().zip(subnet.iter_mut()) {
-                *tgt += *src;
-            }
-        }
-    }
+    extract_weights(&merged_net.perspective_weight, &mut feature_weights_buf, neurons, qa, true);
+    extract_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
+    extract_weights(&merged_net.output_weight, &mut output_weights_buf, out_size, qb, false);
+    extract_biases(&merged_net.output_bias, &mut output_bias_buf, qa * qb);
 
     // return the buffers
     Ok(QuantisedMergedNetwork {
