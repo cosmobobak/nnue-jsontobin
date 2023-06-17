@@ -29,8 +29,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let json = fs::read_to_string(input_path)?;
-    let convert::QuantisedMergedNetwork { feature_weights: ft_weights, feature_bias: ft_bias, output_weights: out_weights, output_bias: out_bias } =
-        convert::from_json(&json, args.qa, args.qb)?;
+    let convert::QuantisedMergedNetwork {
+        feature_weights: ft_weights,
+        feature_bias: ft_bias,
+        output_weights: out_weights,
+        output_bias: out_bias,
+    } = convert::from_json(&json, args.qa, args.qb)?;
 
     if let Some(path) = args.unified {
         dump_unified(&path, &ft_weights, &ft_bias, &out_weights, &out_bias)?;

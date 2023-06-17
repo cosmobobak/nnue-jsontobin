@@ -1,4 +1,3 @@
-
 use serde::Deserialize;
 
 const INPUT_SIZE: usize = 768;
@@ -50,7 +49,13 @@ pub struct QuantisedMergedNetwork {
     pub output_bias: Vec<i16>,
 }
 
-fn extract_weights(weights: &[Vec<f64>], weight_array: &mut [i16], stride: usize, k: i32, flip: bool) {
+fn extract_weights(
+    weights: &[Vec<f64>],
+    weight_array: &mut [i16],
+    stride: usize,
+    k: i32,
+    flip: bool,
+) {
     #![allow(clippy::cast_possible_truncation)]
     for (i, output) in weights.iter().enumerate() {
         for (j, weight) in output.iter().enumerate() {
@@ -109,7 +114,10 @@ pub fn from_json(
     }
 
     // merge the factoriser and perspective weights:
-    let merged_net = if let (Some(fft_weight), Some(fft_bias)) = (network_weights.factoriser_weight, network_weights.factoriser_bias) {
+    let merged_net = if let (Some(fft_weight), Some(fft_bias)) = (
+        network_weights.factoriser_weight,
+        network_weights.factoriser_bias,
+    ) {
         let mut perspective_weight = network_weights.perspective_weight;
         let mut perspective_bias = network_weights.perspective_bias;
         assert_eq!(perspective_weight.len(), fft_weight.len());
@@ -149,9 +157,21 @@ pub fn from_json(
     let mut output_bias_buf = vec![0i16; 1];
 
     // read the weights and biases into the buffers
-    extract_weights(&merged_net.perspective_weight, &mut feature_weights_buf, neurons, qa, true);
+    extract_weights(
+        &merged_net.perspective_weight,
+        &mut feature_weights_buf,
+        neurons,
+        qa,
+        true,
+    );
     extract_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
-    extract_weights(&merged_net.output_weight, &mut output_weights_buf, out_size, qb, false);
+    extract_weights(
+        &merged_net.output_weight,
+        &mut output_weights_buf,
+        out_size,
+        qb,
+        false,
+    );
     extract_biases(&merged_net.output_bias, &mut output_bias_buf, qa * qb);
 
     // return the buffers
@@ -168,8 +188,12 @@ mod tests {
     fn test_from_json_0030() {
         use crate::convert::QuantisedMergedNetwork;
         let json = std::fs::read_to_string("validation/net0030/viri0030.json").unwrap();
-        let QuantisedMergedNetwork { feature_weights, feature_bias, output_weights, output_bias } =
-            crate::convert::from_json(&json, 255, 64).unwrap();
+        let QuantisedMergedNetwork {
+            feature_weights,
+            feature_bias,
+            output_weights,
+            output_bias,
+        } = crate::convert::from_json(&json, 255, 64).unwrap();
         assert_eq!(feature_weights.len(), 768 * 256);
         assert_eq!(feature_bias.len(), 256);
         assert_eq!(output_weights.len(), 512);
@@ -215,8 +239,12 @@ mod tests {
     fn test_from_json_0056() {
         use crate::convert::QuantisedMergedNetwork;
         let json = std::fs::read_to_string("validation/net0056/viri0056.json").unwrap();
-        let QuantisedMergedNetwork { feature_weights: ft_weights, feature_bias: ft_bias, output_weights: out_weights, output_bias: out_bias } =
-            crate::convert::from_json(&json, 255, 64).unwrap();
+        let QuantisedMergedNetwork {
+            feature_weights: ft_weights,
+            feature_bias: ft_bias,
+            output_weights: out_weights,
+            output_bias: out_bias,
+        } = crate::convert::from_json(&json, 255, 64).unwrap();
         assert_eq!(ft_weights.len(), 768 * 512);
         assert_eq!(ft_bias.len(), 512);
         assert_eq!(out_weights.len(), 1024);
