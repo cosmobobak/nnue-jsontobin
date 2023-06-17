@@ -1,4 +1,4 @@
-EXE = viri-jsontobin
+EXE = nnue-jsontobin
 ifeq ($(OS),Windows_NT)
 	NAME := $(EXE)-x86_64-win.exe
 else
