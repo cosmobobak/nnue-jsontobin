@@ -51,7 +51,7 @@ pub struct QuantisedMergedNetwork {
 
 fn extract_weights(
     weights: &[Vec<f64>],
-    weight_array: &mut [i16],
+    buffer: &mut [i16],
     stride: usize,
     k: i32,
     flip: bool,
@@ -60,15 +60,15 @@ fn extract_weights(
     for (i, output) in weights.iter().enumerate() {
         for (j, weight) in output.iter().enumerate() {
             let index = if flip { j * stride + i } else { i * stride + j };
-            weight_array[index] = (weight * f64::from(k)) as i16;
+            buffer[index] = (weight * f64::from(k)) as i16;
         }
     }
 }
 
-fn extract_biases(biases: &[f64], bias_array: &mut [i16], k: i32) {
+fn extract_biases(biases: &[f64], buffer: &mut [i16], k: i32) {
     #![allow(clippy::cast_possible_truncation)]
     for (i, bias) in biases.iter().enumerate() {
-        bias_array[i] = (bias * f64::from(k)) as i16;
+        buffer[i] = (bias * f64::from(k)) as i16;
     }
 }
 
