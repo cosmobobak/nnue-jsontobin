@@ -19,27 +19,27 @@ const INPUT_SIZE: usize = 768;
 struct FullNetworkWeights {
     #[serde(rename = "perspective.weight")]
     #[serde(alias = "ft.weight")]
-    perspective_weight: Vec<Vec<f64>>,
+    perspective_weight: Box<[Box<[f64]>]>,
     #[serde(rename = "perspective.bias")]
     #[serde(alias = "ft.bias")]
-    perspective_bias: Vec<f64>,
+    perspective_bias: Box<[f64]>,
     #[serde(rename = "factoriser.weight")]
     #[serde(alias = "fft.weight")]
-    factoriser_weight: Option<Vec<Vec<f64>>>,
+    factoriser_weight: Option<Box<[Box<[f64]>]>>,
     #[serde(rename = "factoriser.bias")]
     #[serde(alias = "fft.bias")]
-    factoriser_bias: Option<Vec<f64>>,
+    factoriser_bias: Option<Box<[f64]>>,
     #[serde(rename = "out.weight")]
-    output_weight: Vec<Vec<f64>>,
+    output_weight: Box<[Box<[f64]>]>,
     #[serde(rename = "out.bias")]
-    output_bias: Vec<f64>,
+    output_bias: Box<[f64]>,
 }
 
 struct MergedNetworkWeights {
-    pub perspective_weight: Vec<Vec<f64>>,
-    pub perspective_bias: Vec<f64>,
-    pub output_weight: Vec<Vec<f64>>,
-    pub output_bias: Vec<f64>,
+    pub perspective_weight: Box<[Box<[f64]>]>,
+    pub perspective_bias: Box<[f64]>,
+    pub output_weight: Box<[Box<[f64]>]>,
+    pub output_bias: Box<[f64]>,
 }
 
 pub struct QuantisedMergedNetwork {
@@ -50,7 +50,7 @@ pub struct QuantisedMergedNetwork {
 }
 
 fn extract_weights(
-    weights: &[Vec<f64>],
+    weights: &[Box<[f64]>],
     buffer: &mut [i16],
     stride: usize,
     k: i32,
@@ -87,7 +87,6 @@ pub fn from_json(
         // otherwise, there aren't any buckets, so we can safely use the perspective weight
         network_weights.perspective_weight.len()
     };
-    println!("ft_size: {}", network_weights.perspective_weight.len());
     println!("neurons: {neurons}");
     let out_size = network_weights.output_weight[0].len();
     println!("out_size: {out_size}");
@@ -118,25 +117,39 @@ pub fn from_json(
         network_weights.factoriser_weight,
         network_weights.factoriser_bias,
     ) {
-        let mut perspective_weight = network_weights.perspective_weight;
         let mut perspective_bias = network_weights.perspective_bias;
-        assert_eq!(perspective_weight.len(), fft_weight.len());
+        assert_eq!(network_weights.perspective_weight.len(), fft_weight.len());
         assert_eq!(perspective_bias.len(), fft_bias.len());
-        assert_eq!(perspective_weight[0].len() / buckets, fft_weight[0].len());
+        assert_eq!(network_weights.perspective_weight[0].len() / buckets, fft_weight[0].len());
         // merge biases
         for (bias_src, bias_dst) in fft_bias.iter().zip(perspective_bias.iter_mut()) {
             *bias_dst += bias_src;
         }
-        // merge weights
-        for (weight_src, weight_dst) in fft_weight.iter().zip(perspective_weight.iter_mut()) {
-            assert_eq!(weight_src.len(), weight_dst.len() / buckets);
-            for i in 0..weight_dst.len() {
-                // using modular arithmetic here because the factoriser weights are repeated.
-                weight_dst[i] += weight_src[i % weight_src.len()];
+        // merge weights -
+        // as far as i can tell, marlinflow generates unbucketed networks like this:
+        // [neuron][feature] - this is why we flip it when we quantise it, to get [feature][neuron]
+        // the bucketed networks treat the king location as moving all features 768 places to the right, giving us:
+        // [neuron][bucket][feature], in effect.
+        // we would like to transform this into [feature][neuron][bucket], so that we can quantise it, which will take
+        // a bit of jigging around. We can rely on the quantiser to do the right thing to a 2d array, so we can just 
+        // pretend that the buckets are just extra neurons, like [neurons * buckets][feature]. Then we can flip it
+        // to get [feature][neurons * buckets] by using a stride of neurons * buckets.
+        let mut reshaped = vec![vec![0f64; INPUT_SIZE].into_boxed_slice(); neurons * buckets].into_boxed_slice();
+        for (neuron_idx, neuron) in network_weights.perspective_weight.iter().enumerate() {
+            // each neuron is a vector of [bucket][feature]
+            for (bucket_idx, bucket) in neuron.chunks_exact(INPUT_SIZE).enumerate() {
+                // each bucket is a vector of [feature]
+                for (feature_idx, feature) in bucket.iter().enumerate() {
+                    // each feature is a single value
+                    reshaped[neuron_idx + bucket_idx * neurons][feature_idx] = *feature;
+                    // add the factoriser weight to the perspective weight
+                    reshaped[neuron_idx + bucket_idx * neurons][feature_idx] += fft_weight[neuron_idx][feature_idx];
+                }
             }
         }
+
         MergedNetworkWeights {
-            perspective_weight,
+            perspective_weight: reshaped,
             perspective_bias,
             output_weight: network_weights.output_weight,
             output_bias: network_weights.output_bias,
@@ -152,18 +165,22 @@ pub fn from_json(
 
     // allocate buffers for the weights and biases
     let mut feature_weights_buf = vec![0i16; neurons * INPUT_SIZE * buckets];
-    let mut feature_bias_buf = vec![0i16; neurons * buckets];
+    let mut feature_bias_buf = vec![0i16; neurons];
     let mut output_weights_buf = vec![0i16; out_size];
     let mut output_bias_buf = vec![0i16; 1];
 
     // read the weights and biases into the buffers
-    extract_weights(
-        &merged_net.perspective_weight,
-        &mut feature_weights_buf,
-        neurons,
-        qa,
-        true,
-    );
+    for bucket in 0..buckets {
+        let weights = &merged_net.perspective_weight[bucket * neurons..(bucket + 1) * neurons];
+        let buffer = &mut feature_weights_buf[bucket * neurons * INPUT_SIZE..(bucket + 1) * neurons * INPUT_SIZE];
+        extract_weights(
+            weights,
+            buffer,
+            neurons,
+            qa,
+            true,
+        );
+    }
     extract_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
     extract_weights(
         &merged_net.output_weight,
