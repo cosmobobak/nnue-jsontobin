@@ -49,13 +49,7 @@ pub struct QuantisedMergedNetwork {
     pub output_bias: Vec<i16>,
 }
 
-fn extract_weights(
-    weights: &[Box<[f64]>],
-    buffer: &mut [i16],
-    stride: usize,
-    k: i32,
-    flip: bool,
-) {
+fn extract_weights(weights: &[Box<[f64]>], buffer: &mut [i16], stride: usize, k: i32, flip: bool) {
     #![allow(clippy::cast_possible_truncation)]
     for (i, output) in weights.iter().enumerate() {
         for (j, weight) in output.iter().enumerate() {
@@ -120,7 +114,10 @@ pub fn from_json(
         let mut perspective_bias = network_weights.perspective_bias;
         assert_eq!(network_weights.perspective_weight.len(), fft_weight.len());
         assert_eq!(perspective_bias.len(), fft_bias.len());
-        assert_eq!(network_weights.perspective_weight[0].len() / buckets, fft_weight[0].len());
+        assert_eq!(
+            network_weights.perspective_weight[0].len() / buckets,
+            fft_weight[0].len()
+        );
         // merge biases
         for (bias_src, bias_dst) in fft_bias.iter().zip(perspective_bias.iter_mut()) {
             *bias_dst += bias_src;
@@ -131,10 +128,11 @@ pub fn from_json(
         // the bucketed networks treat the king location as moving all features 768 places to the right, giving us:
         // [neuron][bucket][feature], in effect.
         // we would like to transform this into [feature][neuron][bucket], so that we can quantise it, which will take
-        // a bit of jigging around. We can rely on the quantiser to do the right thing to a 2d array, so we can just 
+        // a bit of jigging around. We can rely on the quantiser to do the right thing to a 2d array, so we can just
         // pretend that the buckets are just extra neurons, like [neurons * buckets][feature]. Then we can flip it
         // to get [feature][neurons * buckets] by using a stride of neurons * buckets.
-        let mut reshaped = vec![vec![0f64; INPUT_SIZE].into_boxed_slice(); neurons * buckets].into_boxed_slice();
+        let mut reshaped =
+            vec![vec![0f64; INPUT_SIZE].into_boxed_slice(); neurons * buckets].into_boxed_slice();
         for (neuron_idx, neuron) in network_weights.perspective_weight.iter().enumerate() {
             // each neuron is a vector of [bucket][feature]
             for (bucket_idx, bucket) in neuron.chunks_exact(INPUT_SIZE).enumerate() {
@@ -143,7 +141,8 @@ pub fn from_json(
                     // each feature is a single value
                     reshaped[neuron_idx + bucket_idx * neurons][feature_idx] = *feature;
                     // add the factoriser weight to the perspective weight
-                    reshaped[neuron_idx + bucket_idx * neurons][feature_idx] += fft_weight[neuron_idx][feature_idx];
+                    reshaped[neuron_idx + bucket_idx * neurons][feature_idx] +=
+                        fft_weight[neuron_idx][feature_idx];
                 }
             }
         }
@@ -172,14 +171,9 @@ pub fn from_json(
     // read the weights and biases into the buffers
     for bucket in 0..buckets {
         let weights = &merged_net.perspective_weight[bucket * neurons..(bucket + 1) * neurons];
-        let buffer = &mut feature_weights_buf[bucket * neurons * INPUT_SIZE..(bucket + 1) * neurons * INPUT_SIZE];
-        extract_weights(
-            weights,
-            buffer,
-            neurons,
-            qa,
-            true,
-        );
+        let buffer = &mut feature_weights_buf
+            [bucket * neurons * INPUT_SIZE..(bucket + 1) * neurons * INPUT_SIZE];
+        extract_weights(weights, buffer, neurons, qa, true);
     }
     extract_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
     extract_weights(
