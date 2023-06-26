@@ -17,4 +17,7 @@ pub struct Cli {
     /// The second quantisation parameter.
     #[clap(long, value_name = "K", default_value = "64")]
     pub qb: i32,
+    /// Whether to output the output weights as i16 instead of i8 (legacy support).
+    #[clap(long)]
+    pub big_out: bool,
 }

@@ -1,6 +1,6 @@
 [package]
 name = "nnue-jsontobin"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2021"
 description = "Converts marlinflow JSON networks into binary format, for use in chess engines."
 authors = ["Cosmo Bobak"]
