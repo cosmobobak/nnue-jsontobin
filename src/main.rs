@@ -63,12 +63,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn dump_split(
+fn dump_split<'a>(
     path: &Path,
-    ft_weights: &[i16],
-    ft_bias: &[i16],
-    out_weights: &[i16],
-    out_bias: &[i16],
+    ft_weights: &'a [i16],
+    ft_bias: &'a [i16],
+    out_weights: &'a [i16],
+    out_bias: &'a [i16],
     big_out: bool,
 ) -> Result<(), Box<dyn Error>> {
     const FILE_NAMES: [&str; 4] = [
@@ -77,13 +77,18 @@ fn dump_split(
         "output_weights.bin",
         "output_bias.bin",
     ];
-    let ft_weights =
-        unsafe { slice::from_raw_parts(ft_weights.as_ptr().cast::<u8>(), ft_weights.len() * 2) };
-    let ft_bias =
-        unsafe { slice::from_raw_parts(ft_bias.as_ptr().cast::<u8>(), ft_bias.len() * 2) };
+    let ft_weights = unsafe {
+        slice::from_raw_parts::<'a, u8>(ft_weights.as_ptr().cast::<u8>(), ft_weights.len() * 2)
+    };
+    let ft_bias = unsafe {
+        slice::from_raw_parts::<'a, u8>(ft_bias.as_ptr().cast::<u8>(), ft_bias.len() * 2)
+    };
     let out_weights = unsafe {
         if big_out {
-            slice::from_raw_parts(out_weights.as_ptr().cast::<u8>(), out_weights.len() * 2)
+            slice::from_raw_parts::<'a, u8>(
+                out_weights.as_ptr().cast::<u8>(),
+                out_weights.len() * 2,
+            )
         } else {
             let out_weights = out_weights
                 .iter()
@@ -93,11 +98,12 @@ fn dump_split(
             let vec = ManuallyDrop::new(out_weights);
             let ptr = vec.as_ptr().cast::<u8>();
             let len = vec.len();
-            slice::from_raw_parts(ptr, len)
+            slice::from_raw_parts::<'static, u8>(ptr, len)
         }
     };
-    let out_bias =
-        unsafe { slice::from_raw_parts(out_bias.as_ptr().cast::<u8>(), out_bias.len() * 2) };
+    let out_bias = unsafe {
+        slice::from_raw_parts::<'a, u8>(out_bias.as_ptr().cast::<u8>(), out_bias.len() * 2)
+    };
     let byte_slices = [ft_weights, ft_bias, out_weights, out_bias].into_iter();
     for (file_name, slice) in FILE_NAMES.into_iter().zip(byte_slices) {
         let mut file = File::create(path.join(file_name))?;
@@ -111,23 +117,28 @@ fn dump_split(
     Ok(())
 }
 
-fn dump_unified(
+fn dump_unified<'a>(
     path: &Path,
-    ft_weights: &[i16],
-    ft_bias: &[i16],
-    out_weights: &[i16],
-    out_bias: &[i16],
+    ft_weights: &'a [i16],
+    ft_bias: &'a [i16],
+    out_weights: &'a [i16],
+    out_bias: &'a [i16],
     big_out: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(path)?;
 
-    let ft_weights =
-        unsafe { slice::from_raw_parts(ft_weights.as_ptr().cast::<u8>(), ft_weights.len() * 2) };
-    let ft_bias =
-        unsafe { slice::from_raw_parts(ft_bias.as_ptr().cast::<u8>(), ft_bias.len() * 2) };
+    let ft_weights = unsafe {
+        slice::from_raw_parts::<'a, u8>(ft_weights.as_ptr().cast::<u8>(), ft_weights.len() * 2)
+    };
+    let ft_bias = unsafe {
+        slice::from_raw_parts::<'a, u8>(ft_bias.as_ptr().cast::<u8>(), ft_bias.len() * 2)
+    };
     let out_weights = unsafe {
         if big_out {
-            slice::from_raw_parts(out_weights.as_ptr().cast::<u8>(), out_weights.len() * 2)
+            slice::from_raw_parts::<'a, u8>(
+                out_weights.as_ptr().cast::<u8>(),
+                out_weights.len() * 2,
+            )
         } else {
             let out_weights = out_weights
                 .iter()
@@ -137,11 +148,12 @@ fn dump_unified(
             let vec = ManuallyDrop::new(out_weights);
             let ptr = vec.as_ptr().cast::<u8>();
             let len = vec.len();
-            slice::from_raw_parts(ptr, len)
+            slice::from_raw_parts::<'static, u8>(ptr, len)
         }
     };
-    let out_bias =
-        unsafe { slice::from_raw_parts(out_bias.as_ptr().cast::<u8>(), out_bias.len() * 2) };
+    let out_bias = unsafe {
+        slice::from_raw_parts::<'a, u8>(out_bias.as_ptr().cast::<u8>(), out_bias.len() * 2)
+    };
     let byte_slices = [ft_weights, ft_bias, out_weights, out_bias];
     for slice in byte_slices {
         file.write_all(slice)?;
