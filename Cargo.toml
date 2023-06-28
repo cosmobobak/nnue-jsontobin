@@ -4,6 +4,7 @@ version = "2.1.0"
 edition = "2021"
 description = "Converts marlinflow JSON networks into binary format, for use in chess engines."
 authors = ["Cosmo Bobak"]
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
