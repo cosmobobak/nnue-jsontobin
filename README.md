@@ -14,7 +14,7 @@ nnue-jsontobin INPUT.json --unified OUTPUT.bin
 
 This will produce a binary file with the following structure:
 
-in C/C++:
+in C++:
 ```cpp
 struct NetworkWeights {
     std::array<std::int16_t, 768 * NEURONS * BUCKETS> feature_weights;
