@@ -9,14 +9,14 @@ Most typical usage is to convert a JSON file into a unified binary file, with an
 This is achieved by running the following command:
 
 ```
-nnue-jsontobin INPUT.json --unified OUTPUT.bin
+nnue-jsontobin INPUT.json --output OUTPUT.bin
 ```
 
 This will produce a binary file with the following structure:
 
 in C++:
 ```cpp
-struct NetworkWeights {
+struct alignas(64) NetworkWeights {
     std::array<std::int16_t, 768 * NEURONS * BUCKETS> feature_weights;
     std::array<std::int16_t, NEURONS>                 feature_biases;
     std::array<std::int8_t , NEURONS * 2>             output_weights;
@@ -25,7 +25,7 @@ struct NetworkWeights {
 ```
 or, in Rust:
 ```rust
-#[repr(C)]
+#[repr(C, align(64))]
 struct NetworkWeights {
     feature_weights: [i16; 768 * NEURONS * BUCKETS],
     feature_biases:  [i16; NEURONS],
@@ -34,20 +34,7 @@ struct NetworkWeights {
 }
 ```
 
-Alternatively, you can produce split binary files, one for each field of the above struct.
-This is achieved by running the following command:
-
-```
-nnue-jsontobin INPUT.json --split OUTPUT_DIR
-```
-
-The output directory will contain the following files:
-```
-feature_weights.bin
-feature_biases.bin
-output_weights.bin
-output_bias.bin
-```
+Binary files will be aligned to 64 bytes (size is a multiple of 64 bytes), and so will be padded with trailing zeros if necessary.
 
 For backwards compatibility, you can also produce a binary file with a 16-bit output weight array, by adding the `--big-out` flag.
 

@@ -26,138 +26,78 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("No input file specified.".into());
     };
 
-    if args.unified.is_none() && args.split.is_none() {
-        return Err("No output path specified, try --unified <PATH> or --split <PATH> (you probably want --unified)".into());
-    }
+    let Some(output_path) = args.output else {
+        return Err("No output path specified, try --output <PATH>".into());
+    };
 
     let json = fs::read_to_string(input_path)?;
     let convert::QuantisedMergedNetwork {
-        feature_weights: ft_weights,
-        feature_bias: ft_bias,
-        output_weights: out_weights,
-        output_bias: out_bias,
+        feature_weights,
+        feature_bias,
+        output_weights,
+        output_bias,
     } = convert::from_json(&json, args.qa, args.qb)?;
 
-    if let Some(path) = args.unified {
-        dump_unified(
-            &path,
-            &ft_weights,
-            &ft_bias,
-            &out_weights,
-            &out_bias,
-            args.big_out,
-        )?;
-    }
-
-    if let Some(path) = args.split {
-        dump_split(
-            &path,
-            &ft_weights,
-            &ft_bias,
-            &out_weights,
-            &out_bias,
-            args.big_out,
-        )?;
-    }
+    dump(
+        &output_path,
+        &feature_weights,
+        &feature_bias,
+        &output_weights,
+        &output_bias,
+        args.big_out,
+    )?;
 
     Ok(())
 }
 
-fn dump_split<'a>(
+fn dump<'a>(
     path: &Path,
-    ft_weights: &'a [i16],
-    ft_bias: &'a [i16],
-    out_weights: &'a [i16],
-    out_bias: &'a [i16],
-    big_out: bool,
-) -> Result<(), Box<dyn Error>> {
-    const FILE_NAMES: [&str; 4] = [
-        "feature_weights.bin",
-        "feature_bias.bin",
-        "output_weights.bin",
-        "output_bias.bin",
-    ];
-    let ft_weights = unsafe {
-        slice::from_raw_parts::<'a, u8>(ft_weights.as_ptr().cast::<u8>(), ft_weights.len() * 2)
-    };
-    let ft_bias = unsafe {
-        slice::from_raw_parts::<'a, u8>(ft_bias.as_ptr().cast::<u8>(), ft_bias.len() * 2)
-    };
-    let out_weights = unsafe {
-        if big_out {
-            slice::from_raw_parts::<'a, u8>(
-                out_weights.as_ptr().cast::<u8>(),
-                out_weights.len() * 2,
-            )
-        } else {
-            let out_weights = out_weights
-                .iter()
-                .map(|&i| i8::try_from(i).unwrap())
-                .collect::<Vec<_>>();
-            // just leak the vec and cast it to a byte slice
-            let vec = ManuallyDrop::new(out_weights);
-            let ptr = vec.as_ptr().cast::<u8>();
-            let len = vec.len();
-            slice::from_raw_parts::<'static, u8>(ptr, len)
-        }
-    };
-    let out_bias = unsafe {
-        slice::from_raw_parts::<'a, u8>(out_bias.as_ptr().cast::<u8>(), out_bias.len() * 2)
-    };
-    let byte_slices = [ft_weights, ft_bias, out_weights, out_bias].into_iter();
-    for (file_name, slice) in FILE_NAMES.into_iter().zip(byte_slices) {
-        let mut file = File::create(path.join(file_name))?;
-        file.write_all(slice)?;
-        println!(
-            "Wrote {} bytes to {}",
-            slice.len(),
-            path.join(file_name).display()
-        );
-    }
-    Ok(())
-}
-
-fn dump_unified<'a>(
-    path: &Path,
-    ft_weights: &'a [i16],
-    ft_bias: &'a [i16],
-    out_weights: &'a [i16],
-    out_bias: &'a [i16],
+    feature_weights: &'a [i16],
+    feature_bias: &'a [i16],
+    output_weights: &'a [i16],
+    output_bias: &'a [i16],
     big_out: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(path)?;
 
-    let ft_weights = unsafe {
-        slice::from_raw_parts::<'a, u8>(ft_weights.as_ptr().cast::<u8>(), ft_weights.len() * 2)
+    let feature_weights = unsafe {
+        slice::from_raw_parts::<'a, u8>(feature_weights.as_ptr().cast::<u8>(), feature_weights.len() * 2)
     };
-    let ft_bias = unsafe {
-        slice::from_raw_parts::<'a, u8>(ft_bias.as_ptr().cast::<u8>(), ft_bias.len() * 2)
+    let feature_bias = unsafe {
+        slice::from_raw_parts::<'a, u8>(feature_bias.as_ptr().cast::<u8>(), feature_bias.len() * 2)
     };
-    let out_weights = unsafe {
+    let output_weights = unsafe {
         if big_out {
             slice::from_raw_parts::<'a, u8>(
-                out_weights.as_ptr().cast::<u8>(),
-                out_weights.len() * 2,
+                output_weights.as_ptr().cast::<u8>(),
+                output_weights.len() * 2,
             )
         } else {
-            let out_weights = out_weights
+            let output_weights = output_weights
                 .iter()
                 .map(|&i| i8::try_from(i).unwrap())
                 .collect::<Vec<_>>();
             // just leak the vec and cast it to a byte slice
-            let vec = ManuallyDrop::new(out_weights);
+            let vec = ManuallyDrop::new(output_weights);
             let ptr = vec.as_ptr().cast::<u8>();
             let len = vec.len();
             slice::from_raw_parts::<'static, u8>(ptr, len)
         }
     };
-    let out_bias = unsafe {
-        slice::from_raw_parts::<'a, u8>(out_bias.as_ptr().cast::<u8>(), out_bias.len() * 2)
+    let output_bias = unsafe {
+        slice::from_raw_parts::<'a, u8>(output_bias.as_ptr().cast::<u8>(), output_bias.len() * 2)
     };
-    let byte_slices = [ft_weights, ft_bias, out_weights, out_bias];
+    let byte_slices = [feature_weights, feature_bias, output_weights, output_bias];
     for slice in byte_slices {
         file.write_all(slice)?;
     }
+    // determine zero-padding for 64-byte alignment
+    let remainder = byte_slices.into_iter().map(<[_]>::len).sum::<usize>() % 64;
+    if remainder != 0 {
+        let padding = [0u8; 64];
+        file.write_all(&padding[..(64 - remainder)])?;
+    }
+
     println!(
         "Wrote {} bytes to {}",
         byte_slices.into_iter().map(<[_]>::len).sum::<usize>(),
