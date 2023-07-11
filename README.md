@@ -9,7 +9,7 @@ Most typical usage is to convert a JSON file into a unified binary file, with an
 This is achieved by running the following command:
 
 ```
-nnue-jsontobin INPUT.json --unified OUTPUT.bin
+nnue-jsontobin INPUT.json --output OUTPUT.bin
 ```
 
 This will produce a binary file with the following structure:
@@ -32,21 +32,6 @@ struct NetworkWeights {
     output_weights:  [i8; NEURONS * 2],
     output_bias:     i16,
 }
-```
-
-Alternatively, you can produce split binary files, one for each field of the above struct.
-This is achieved by running the following command:
-
-```
-nnue-jsontobin INPUT.json --split OUTPUT_DIR
-```
-
-The output directory will contain the following files:
-```
-feature_weights.bin
-feature_biases.bin
-output_weights.bin
-output_bias.bin
 ```
 
 For backwards compatibility, you can also produce a binary file with a 16-bit output weight array, by adding the `--big-out` flag.
