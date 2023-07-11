@@ -17,4 +17,10 @@ pub struct Cli {
     /// Whether to output the output weights as i16 instead of i8 (legacy support).
     #[clap(long)]
     pub big_out: bool,
+    /// Whether to omit the binary header.
+    #[clap(long)]
+    pub no_header: bool,
+    /// Name of the network.
+    #[clap(long, value_name = "NAME")]
+    pub name: Option<String>,
 }

@@ -47,6 +47,8 @@ pub struct QuantisedMergedNetwork {
     pub feature_bias: Vec<i16>,
     pub output_weights: Vec<i16>,
     pub output_bias: Vec<i16>,
+    pub has_buckets: bool,
+    pub hidden_size: usize,
 }
 
 fn extract_weights(weights: &[Box<[f64]>], buffer: &mut [i16], stride: usize, k: i32, flip: bool) {
@@ -191,6 +193,8 @@ pub fn from_json(
         feature_bias: feature_bias_buf,
         output_weights: output_weights_buf,
         output_bias: output_bias_buf,
+        has_buckets: buckets > 1,
+        hidden_size: neurons,
     })
 }
 
@@ -204,6 +208,7 @@ mod tests {
             feature_bias,
             output_weights,
             output_bias,
+            ..
         } = crate::convert::from_json(&json, 255, 64).unwrap();
         assert_eq!(feature_weights.len(), 768 * 256);
         assert_eq!(feature_bias.len(), 256);
@@ -255,6 +260,7 @@ mod tests {
             feature_bias: ft_bias,
             output_weights: out_weights,
             output_bias: out_bias,
+            ..
         } = crate::convert::from_json(&json, 255, 64).unwrap();
         assert_eq!(ft_weights.len(), 768 * 512);
         assert_eq!(ft_bias.len(), 512);

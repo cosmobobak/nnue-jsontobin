@@ -9,6 +9,12 @@ use std::{
     slice,
 };
 
+use cbnf_rs::CBNFHeader;
+
+const HALF_KA: u8 = 0x00;
+const PERSPECTIVE: u8 = 0x01;
+const NET_NAME_MAXLEN: usize = 48;
+
 mod cli;
 mod convert;
 
@@ -30,16 +36,54 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err("No output path specified, try --output <PATH>".into());
     };
 
+    let net_name = match args.name {
+        Some(name) => name,
+        None => if args.no_header {
+            String::new()
+        } else {
+            return Err("No network name specified for CBNF header, try --name <NAME>".into());
+        }
+    };
+
+    if net_name.len() > NET_NAME_MAXLEN {
+        return Err(format!("Network name too long, must be {NET_NAME_MAXLEN} characters or less.").into());
+    }
+
     let json = fs::read_to_string(input_path)?;
     let convert::QuantisedMergedNetwork {
         feature_weights,
         feature_bias,
         output_weights,
         output_bias,
+        has_buckets,
+        hidden_size,
     } = convert::from_json(&json, args.qa, args.qb)?;
+
+    let arch = if has_buckets {
+        HALF_KA
+    } else {
+        PERSPECTIVE
+    };
+
+    let mut name_buffer = [0u8; NET_NAME_MAXLEN];
+    name_buffer[..net_name.len()].copy_from_slice(net_name.as_bytes());
+    let cbnf_header = CBNFHeader {
+        magic: *b"CBNF",
+        version: 1,
+        flags: 0,
+        padding: 0,
+        arch,
+        activation: 0,
+        hidden_size: hidden_size.try_into().unwrap(),
+        input_buckets: if has_buckets { 64 } else { 1 },
+        output_buckets: 1,
+        name_len: net_name.len().try_into().unwrap(),
+        name: name_buffer,
+    };
 
     dump(
         &output_path,
+        &cbnf_header,
         &feature_weights,
         &feature_bias,
         &output_weights,
@@ -52,6 +96,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 fn dump<'a>(
     path: &Path,
+    cbnf_header: &CBNFHeader,
     feature_weights: &'a [i16],
     feature_bias: &'a [i16],
     output_weights: &'a [i16],
@@ -59,6 +104,7 @@ fn dump<'a>(
     big_out: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(path)?;
+    file.write_all(cbnf_header.as_bytes())?;
 
     let feature_weights = unsafe {
         slice::from_raw_parts::<'a, u8>(feature_weights.as_ptr().cast::<u8>(), feature_weights.len() * 2)
@@ -92,6 +138,7 @@ fn dump<'a>(
         file.write_all(slice)?;
     }
     // determine zero-padding for 64-byte alignment
+    // CBNF header is ignored as it is always a multiple of 64 bytes
     let remainder = byte_slices.into_iter().map(<[_]>::len).sum::<usize>() % 64;
     if remainder != 0 {
         let padding = [0u8; 64];

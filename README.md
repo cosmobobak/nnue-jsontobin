@@ -17,6 +17,7 @@ This will produce a binary file with the following structure:
 in C++:
 ```cpp
 struct alignas(64) NetworkWeights {
+    CBNFHeader                                        header; // by default, can be omitted with --no-header
     std::array<std::int16_t, 768 * NEURONS * BUCKETS> feature_weights;
     std::array<std::int16_t, NEURONS>                 feature_biases;
     std::array<std::int8_t , NEURONS * 2>             output_weights;
@@ -27,6 +28,7 @@ or, in Rust:
 ```rust
 #[repr(C, align(64))]
 struct NetworkWeights {
+    header:          CBNFHeader, // by default, can be omitted with --no-header
     feature_weights: [i16; 768 * NEURONS * BUCKETS],
     feature_biases:  [i16; NEURONS],
     output_weights:  [i8; NEURONS * 2],
