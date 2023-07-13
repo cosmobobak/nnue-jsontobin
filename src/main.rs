@@ -83,7 +83,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     dump(
         &output_path,
-        &cbnf_header,
+        if args.no_header { None } else { Some(&cbnf_header) },
         &feature_weights,
         &feature_bias,
         &output_weights,
@@ -96,7 +96,7 @@ fn run() -> Result<(), Box<dyn Error>> {
 
 fn dump<'a>(
     path: &Path,
-    cbnf_header: &CBNFHeader,
+    cbnf_header: Option<&CBNFHeader>,
     feature_weights: &'a [i16],
     feature_bias: &'a [i16],
     output_weights: &'a [i16],
@@ -104,7 +104,9 @@ fn dump<'a>(
     big_out: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(path)?;
-    file.write_all(cbnf_header.as_bytes())?;
+    if let Some(cbnf_header) = cbnf_header {
+        file.write_all(cbnf_header.as_bytes())?;
+    }
 
     let feature_weights = unsafe {
         slice::from_raw_parts::<'a, u8>(feature_weights.as_ptr().cast::<u8>(), feature_weights.len() * 2)
