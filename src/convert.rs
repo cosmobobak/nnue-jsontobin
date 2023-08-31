@@ -29,6 +29,8 @@ struct FullNetworkWeights {
     #[serde(rename = "factoriser.bias")]
     #[serde(alias = "fft.bias")]
     factoriser_bias: Option<Box<[f64]>>,
+    #[serde(rename = "psqt.weight")]
+    psqt_weight: Option<Box<[Box<[f64]>]>>,
     #[serde(rename = "out.weight")]
     output_weight: Box<[Box<[f64]>]>,
     #[serde(rename = "out.bias")]
@@ -40,6 +42,7 @@ struct MergedNetworkWeights {
     pub perspective_bias: Box<[f64]>,
     pub output_weight: Box<[Box<[f64]>]>,
     pub output_bias: Box<[f64]>,
+    pub psqt_weight: Option<Box<[f64]>>,
 }
 
 pub struct QuantisedMergedNetwork {
@@ -47,11 +50,18 @@ pub struct QuantisedMergedNetwork {
     pub feature_bias: Vec<i16>,
     pub output_weights: Vec<i16>,
     pub output_bias: Vec<i16>,
+    pub psqt_weights: Option<Vec<i16>>,
     pub has_buckets: bool,
     pub hidden_size: usize,
 }
 
-fn extract_weights(weights: &[Box<[f64]>], buffer: &mut [i16], stride: usize, k: i32, flip: bool) {
+fn transpose_and_quantise_neurons(
+    weights: &[Box<[f64]>],
+    buffer: &mut [i16],
+    stride: usize,
+    k: i32,
+    flip: bool,
+) {
     #![allow(clippy::cast_possible_truncation)]
     for (i, output) in weights.iter().enumerate() {
         for (j, weight) in output.iter().enumerate() {
@@ -61,13 +71,21 @@ fn extract_weights(weights: &[Box<[f64]>], buffer: &mut [i16], stride: usize, k:
     }
 }
 
-fn extract_biases(biases: &[f64], buffer: &mut [i16], k: i32) {
+fn quantise_biases(biases: &[f64], buffer: &mut [i16], k: i32) {
     #![allow(clippy::cast_possible_truncation)]
     for (i, bias) in biases.iter().enumerate() {
         buffer[i] = (bias * f64::from(k)) as i16;
     }
 }
 
+fn quantise_psqt(psqt: &[f64], buffer: &mut [i16], k: i32) {
+    #![allow(clippy::cast_possible_truncation)]
+    for (i, weight) in psqt.iter().enumerate() {
+        buffer[i] = (weight * f64::from(k)) as i16;
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 pub fn from_json(
     json: &str,
     qa: i32,
@@ -154,6 +172,9 @@ pub fn from_json(
             perspective_bias,
             output_weight: network_weights.output_weight,
             output_bias: network_weights.output_bias,
+            psqt_weight: network_weights
+                .psqt_weight
+                .map(|mut x| std::mem::take(&mut x[0])),
         }
     } else {
         MergedNetworkWeights {
@@ -161,6 +182,9 @@ pub fn from_json(
             perspective_bias: network_weights.perspective_bias,
             output_weight: network_weights.output_weight,
             output_bias: network_weights.output_bias,
+            psqt_weight: network_weights
+                .psqt_weight
+                .map(|mut x| std::mem::take(&mut x[0])),
         }
     };
 
@@ -169,23 +193,28 @@ pub fn from_json(
     let mut feature_bias_buf = vec![0i16; neurons];
     let mut output_weights_buf = vec![0i16; out_size];
     let mut output_bias_buf = vec![0i16; 1];
+    let mut psqt_buf = vec![0i16; 64 * 12];
 
     // read the weights and biases into the buffers
     for bucket in 0..buckets {
         let weights = &merged_net.perspective_weight[bucket * neurons..(bucket + 1) * neurons];
         let buffer = &mut feature_weights_buf
             [bucket * neurons * INPUT_SIZE..(bucket + 1) * neurons * INPUT_SIZE];
-        extract_weights(weights, buffer, neurons, qa, true);
+        transpose_and_quantise_neurons(weights, buffer, neurons, qa, true);
     }
-    extract_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
-    extract_weights(
+    quantise_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
+    transpose_and_quantise_neurons(
         &merged_net.output_weight,
         &mut output_weights_buf,
         out_size,
         qb,
         false,
     );
-    extract_biases(&merged_net.output_bias, &mut output_bias_buf, qa * qb);
+    quantise_biases(&merged_net.output_bias, &mut output_bias_buf, qa * qb);
+    let psqt_buf = merged_net.psqt_weight.map(|psqt| {
+        quantise_psqt(&psqt, &mut psqt_buf, qa * qb);
+        psqt_buf
+    });
 
     // return the buffers
     Ok(QuantisedMergedNetwork {
@@ -193,6 +222,7 @@ pub fn from_json(
         feature_bias: feature_bias_buf,
         output_weights: output_weights_buf,
         output_bias: output_bias_buf,
+        psqt_weights: psqt_buf,
         has_buckets: buckets > 1,
         hidden_size: neurons,
     })

@@ -38,15 +38,20 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let net_name = match args.name {
         Some(name) => name,
-        None => if args.no_header {
-            String::new()
-        } else {
-            return Err("No network name specified for CBNF header, try --name <NAME>".into());
+        None => {
+            if args.no_header {
+                String::new()
+            } else {
+                return Err("No network name specified for CBNF header, try --name <NAME>".into());
+            }
         }
     };
 
     if net_name.len() > NET_NAME_MAXLEN {
-        return Err(format!("Network name too long, must be {NET_NAME_MAXLEN} characters or less.").into());
+        return Err(format!(
+            "Network name too long, must be {NET_NAME_MAXLEN} characters or less."
+        )
+        .into());
     }
 
     let json = fs::read_to_string(input_path)?;
@@ -55,15 +60,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         feature_bias,
         output_weights,
         output_bias,
+        psqt_weights,
         has_buckets,
         hidden_size,
     } = convert::from_json(&json, args.qa, args.qb)?;
 
-    let arch = if has_buckets {
-        HALF_KA
-    } else {
-        PERSPECTIVE
-    };
+    let arch = if has_buckets { HALF_KA } else { PERSPECTIVE };
 
     let mut name_buffer = [0u8; NET_NAME_MAXLEN];
     name_buffer[..net_name.len()].copy_from_slice(net_name.as_bytes());
@@ -83,17 +85,32 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     dump(
         &output_path,
-        if args.no_header { None } else { Some(&cbnf_header) },
+        if args.no_header {
+            None
+        } else {
+            Some(&cbnf_header)
+        },
         &feature_weights,
         &feature_bias,
         &output_weights,
         &output_bias,
+        psqt_weights.as_deref(),
         args.big_out,
     )?;
 
     Ok(())
 }
 
+fn to_bytes(shorts: &[i16]) -> &[u8] {
+    unsafe {
+        let (a, b, c) = shorts.align_to();
+        assert!(a.is_empty());
+        assert!(c.is_empty());
+        b
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn dump<'a>(
     path: &Path,
     cbnf_header: Option<&CBNFHeader>,
@@ -101,6 +118,7 @@ fn dump<'a>(
     feature_bias: &'a [i16],
     output_weights: &'a [i16],
     output_bias: &'a [i16],
+    psqt_weights: Option<&'a [i16]>,
     big_out: bool,
 ) -> Result<(), Box<dyn Error>> {
     let mut file = File::create(path)?;
@@ -108,18 +126,11 @@ fn dump<'a>(
         file.write_all(cbnf_header.as_bytes())?;
     }
 
-    let feature_weights = unsafe {
-        slice::from_raw_parts::<'a, u8>(feature_weights.as_ptr().cast::<u8>(), feature_weights.len() * 2)
-    };
-    let feature_bias = unsafe {
-        slice::from_raw_parts::<'a, u8>(feature_bias.as_ptr().cast::<u8>(), feature_bias.len() * 2)
-    };
+    let feature_weights = to_bytes(feature_weights);
+    let feature_bias = to_bytes(feature_bias);
     let output_weights = unsafe {
         if big_out {
-            slice::from_raw_parts::<'a, u8>(
-                output_weights.as_ptr().cast::<u8>(),
-                output_weights.len() * 2,
-            )
+            to_bytes(output_weights)
         } else {
             let output_weights = output_weights
                 .iter()
@@ -132,10 +143,15 @@ fn dump<'a>(
             slice::from_raw_parts::<'static, u8>(ptr, len)
         }
     };
-    let output_bias = unsafe {
-        slice::from_raw_parts::<'a, u8>(output_bias.as_ptr().cast::<u8>(), output_bias.len() * 2)
-    };
-    let byte_slices = [feature_weights, feature_bias, output_weights, output_bias];
+    let output_bias = to_bytes(output_bias);
+    let psqt_weights = psqt_weights.map_or([].as_slice(), |psqt_weights| to_bytes(psqt_weights));
+    let byte_slices = [
+        feature_weights,
+        feature_bias,
+        output_weights,
+        psqt_weights,
+        output_bias,
+    ];
     for slice in byte_slices {
         file.write_all(slice)?;
     }

@@ -23,4 +23,7 @@ pub struct Cli {
     /// Name of the network.
     #[clap(long, value_name = "NAME")]
     pub name: Option<String>,
+    /// Whether there is a PSQT subnet.
+    #[clap(long)]
+    pub psqt: bool,
 }
