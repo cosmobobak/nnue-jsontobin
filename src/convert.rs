@@ -55,17 +55,27 @@ pub struct QuantisedMergedNetwork {
     pub hidden_size: usize,
 }
 
-fn transpose_and_quantise_neurons(
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum DoTranspose {
+    Yes,
+    No,
+}
+
+fn quantise_neurons(
     weights: &[Box<[f64]>],
     buffer: &mut [i16],
     stride: usize,
     k: i32,
-    flip: bool,
+    flip: DoTranspose,
 ) {
     #![allow(clippy::cast_possible_truncation)]
     for (i, output) in weights.iter().enumerate() {
         for (j, weight) in output.iter().enumerate() {
-            let index = if flip { j * stride + i } else { i * stride + j };
+            let index = if flip == DoTranspose::Yes {
+                j * stride + i
+            } else {
+                i * stride + j
+            };
             buffer[index] = (weight * f64::from(k)) as i16;
         }
     }
@@ -200,15 +210,15 @@ pub fn from_json(
         let weights = &merged_net.perspective_weight[bucket * neurons..(bucket + 1) * neurons];
         let buffer = &mut feature_weights_buf
             [bucket * neurons * INPUT_SIZE..(bucket + 1) * neurons * INPUT_SIZE];
-        transpose_and_quantise_neurons(weights, buffer, neurons, qa, true);
+        quantise_neurons(weights, buffer, neurons, qa, DoTranspose::Yes);
     }
     quantise_biases(&merged_net.perspective_bias, &mut feature_bias_buf, qa);
-    transpose_and_quantise_neurons(
+    quantise_neurons(
         &merged_net.output_weight,
         &mut output_weights_buf,
         out_size,
         qb,
-        false,
+        DoTranspose::No,
     );
     quantise_biases(&merged_net.output_bias, &mut output_bias_buf, qa * qb);
     let psqt_buf = merged_net.psqt_weight.map(|psqt| {
